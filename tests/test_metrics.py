@@ -3,9 +3,10 @@
 import numpy as np
 import pytest
 
-from delay_aware_scheduling.prediction.exp62_models import fold_assign, metrics, pinball
-from delay_aware_scheduling.scheduling.exp63_admission import order_of
-from delay_aware_scheduling.scheduling.exp64_stats import _p, _sgn
+from delay_aware_scheduling.prediction.features import fold_assign
+from delay_aware_scheduling.prediction.metrics import metrics, pinball
+from delay_aware_scheduling.scheduling.policies import order_of
+from delay_aware_scheduling.scheduling.tables import _p, _sgn
 
 
 def test_metrics_on_perfect_prediction():

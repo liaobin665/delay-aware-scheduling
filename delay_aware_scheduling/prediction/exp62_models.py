@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 r"""就绪延迟的点估计与分位数预测。
 
 队列  ：已就绪且记录了延迟的记录；目标取对数，以压缩跨越五个数量级的延迟跨度。
@@ -18,101 +19,46 @@ r"""就绪延迟的点估计与分位数预测。
 
 用法  python -m delay_aware_scheduling.prediction.exp62_models [--quick]
 """
-import os
-import json
-import time
-import argparse
 
+import argparse
+import json
+import os
+import time
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import lightgbm as lgb
-import xgboost as xgb
-from sklearn.linear_model import LinearRegression
-from sklearn.tree import DecisionTreeRegressor
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
-from scipy.stats import spearmanr, kendalltau
-
-
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.tree import DecisionTreeRegressor
+import xgboost as xgb
+from delay_aware_scheduling.common.log import out
+from delay_aware_scheduling.common.seeds import SEED_FOLD, SEED_SHUFFLE as SEED_RAND
 from delay_aware_scheduling.config import OUT as PROD, SAMPLE, POOL
+
+from .features import ALL_FEATS, CATS, NUM_L0, NUM_L1, build_X, fold_assign
+from .metrics import metrics, pinball
 
 
 N_FOLD = 5
-from delay_aware_scheduling.common.seeds import SEED_FOLD, SEED_SHUFFLE as SEED_RAND
-from delay_aware_scheduling.common.log import out
-CATS = ["gpu_spec_public", "priority_class", "job_type_public", "model_type_public"]
-NUM_L0 = ["gpu_request", "duration_hours", "is_genai_request"]
-NUM_L1 = ["schedule_delay_sec", "server_req_count"]
-ALL_FEATS = CATS + NUM_L0 + NUM_L1
+
+
 LGB_MSE = dict(objective="regression", learning_rate=0.05, num_leaves=63, n_estimators=400,
                min_child_samples=50, subsample=0.8, colsample_bytree=0.8,
                num_threads=6, verbose=-1)
+
+
 LGB_Q = dict(objective="quantile", learning_rate=0.05, num_leaves=63, n_estimators=400,
              min_child_samples=50, subsample=0.8, colsample_bytree=0.8,
              num_threads=6, verbose=-1)
+
+
 QUANTILES = [0.50, 0.90, 0.99]
+
+
 SIZE_BINS = [0.5, 1, 2, 4, 8, 16]
-
-
-def fold_assign(groups, seed, k):
-    uniq = np.unique(groups)
-    rng = np.random.default_rng(seed)
-    rng.shuffle(uniq)
-    of = {kk: i % k for i, kk in enumerate(uniq)}
-    return np.array([of[kk] for kk in groups], dtype=np.int8)
-
-
-def build_X(df, src, cols):
-    X = pd.DataFrame(index=df.index)
-    for c in CATS:
-        if c in cols:
-            X[c] = df[c].astype(str).astype("category")
-    X["gpu_request"] = df["gpu_request"].astype(np.float32)
-    X["duration_hours"] = pd.to_numeric(df["duration_hours"], errors="coerce").fillna(0.0).astype(np.float32)
-    X["schedule_delay_sec"] = pd.to_numeric(df["schedule_delay_sec"], errors="coerce").fillna(-1.0).astype(np.float32)
-    X["is_genai_request"] = (pd.to_numeric(df["is_genai_request"], errors="coerce").fillna(0) > 0).astype(np.int8)
-    if "server_req_count" in cols:
-        X["server_req_count"] = src.astype(np.float32)
-    return X[[c for c in cols]]
-
-
-def metrics(y_log, p_log):
-    m = np.isfinite(p_log) & np.isfinite(y_log)
-    y, p = y_log[m], p_log[m]
-    e = p - y
-    y_sec = np.expm1(y)
-    p_sec = np.expm1(p)
-    ss_res = float(np.sum((y - p) ** 2))
-    ss_tot = float(np.sum((y - y.mean()) ** 2))
-    rho = float(spearmanr(y, p).statistic)
-    tau = float(kendalltau(y, p).statistic)
-    # 秒尺度上的相对误差（中位）
-    rel = np.abs(p_sec - y_sec) / np.maximum(y_sec, 1.0)
-    # 对数尺度落在 2 倍以内（|e| <= ln2）的占比；秒尺度上比值落在 [1/2, 2] 的占比
-    within2_log = float(np.mean(np.abs(e) <= np.log(2.0)))
-    ratio = p_sec / np.maximum(y_sec, 1.0)
-    ratio_in2 = float(np.mean((ratio >= 0.5) & (ratio <= 2.0)))
-    return dict(
-        n=int(m.sum()),
-        mae_log=float(np.mean(np.abs(e))),
-        rmse_log=float(np.sqrt(np.mean(e ** 2))),
-        r2_log=float(1.0 - ss_res / ss_tot) if ss_tot > 0 else None,
-        medae_log=float(np.median(np.abs(e))),
-        spearman_log=rho,
-        kendall_log=tau,
-        within2_log=within2_log,
-        ratio_in2=ratio_in2,
-        mae_sec=float(np.mean(np.abs(p_sec - y_sec))),
-        medae_sec=float(np.median(np.abs(p_sec - y_sec))),
-        mape_rel_median=float(np.median(rel)),
-    )
-
-
-def pinball(y, p, a):
-    d = y - p
-    return float(np.mean(np.maximum(a * d, (a - 1.0) * d)))
 
 
 def main():
