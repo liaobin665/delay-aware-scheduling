@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "delay-aware-scheduling"
+version = "1.0.0"
+description = "Ready-delay prediction and delay-aware admission scheduling for heterogeneous GPU clusters"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "pyarrow>=17.0",
+    "scikit-learn>=1.5",
+    "lightgbm>=4.5",
+    "xgboost>=2.1",
+    "shap>=0.46",
+    "scipy>=1.13",
+]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.9"]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+include = ["delay_aware_scheduling*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

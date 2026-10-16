@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.venv/
+venv/
+
+# 数据与产物一律不进仓库（原始数据另有许可约束，见 data/README.md）
+data/*
+!data/README.md
+mid/*
+!mid/.gitkeep
+out/*
+!out/.gitkeep
+
+*.log
+*.tmp
